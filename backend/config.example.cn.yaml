@@ -1,0 +1,116 @@
+# eVoiceClaw Desktop v3 — 国内模型配置模板
+# 复制此文件为 config.yaml 后修改
+# API Key 请配置在 secrets.yaml 中（参考 secrets.yaml.example）
+#
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  💡 推荐配置：启用至少一个支持深度推理的模型                    ║
+# ║                                                                  ║
+# ║  配置深度推理模型可解锁完整的智能路由优化功能。未配置时系统      ║
+# ║  仍正常运行，但路由规则/Prompt 优化等高级功能将不生效。          ║
+# ║                                                                  ║
+# ║  国内推荐（任选其一即可）：                                      ║
+# ║    • DeepSeek R1          — deepseek provider（经济实惠，首选） ║
+# ║    • Kimi K2 Thinking     — kimi provider                       ║
+# ║    • 混元 T1              — hunyuan provider                    ║
+# ║    • OpenAI o3-mini       — openai provider                     ║
+# ╚══════════════════════════════════════════════════════════════════╝
+
+# ─── LLM 默认配置 ───
+llm:
+  model: "deepseek/deepseek-chat"       # 默认使用 DeepSeek（性价比最优）
+  temperature: 0.7
+  max_tokens: 4096
+
+# ─── Provider 配置（可启用多个，智能路由自动选择） ───
+providers:
+  deepseek:
+    enabled: true
+    base_url: "https://api.deepseek.com/v1"
+    models:
+      - "deepseek/deepseek-chat"        # 通用对话，成本极低
+      - "deepseek/deepseek-reasoner"    # 深度推理
+  zhipu:
+    enabled: false
+    base_url: "https://open.bigmodel.cn/api/paas/v4"
+    models:
+      - "zhipu/glm-4-plus"             # 高质量对话
+      - "zhipu/glm-4-flash"            # 快速响应
+  tongyi:
+    enabled: false
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    models:
+      - "tongyi/qwen-max"              # 通义千问旗舰
+      - "tongyi/qwen-turbo"            # 通义千问快速
+  kimi:
+    enabled: false
+    base_url: "https://api.moonshot.cn/v1"
+    models:
+      - "kimi/kimi-k2-thinking"        # Kimi K2 Thinking（深度推理，旗舰）
+      - "kimi/kimi-k2-thinking-turbo"  # Kimi K2 Thinking Turbo（快速推理）
+      - "kimi/moonshot-v1-128k"        # 超长上下文对话
+      - "kimi/moonshot-v1-8k"          # 标准对话
+  hunyuan:
+    enabled: false
+    base_url: "https://api.hunyuan.cloud.tencent.com/v1"
+    models:
+      - "hunyuan/hunyuan-t1-latest"    # 混元 T1（深度推理）
+      - "hunyuan/hunyuan-turbos-latest" # 混元 Turbo S（快速对话）
+  baichuan:
+    enabled: false
+    base_url: "https://api.baichuan-ai.com/v1"
+    models:
+      - "baichuan/Baichuan4"           # 百川旗舰
+
+# ─── Embedding 配置 ───
+embedding:
+  provider: "local"                     # 国内推荐使用本地 Embedding
+  model: "BAAI/bge-small-zh-v1.5"      # 中文语义最优
+  dim: 512
+  # 远程备选（需 OpenAI 兼容 API）:
+  # provider: "openai"
+  # model: "text-embedding-3-small"
+  # dim: 1536
+
+# ─── 记忆系统 ───
+memory:
+  reranker:
+    enabled: false
+    model: ""
+
+# ─── 隐私管道 ───
+privacy:
+  enabled: true
+  anonymization_strategy: "uuid"
+  sensitivity_levels:
+    critical: true
+    high: true
+    medium: true
+    low: false
+
+# ─── Shell 沙箱 ───
+shell:
+  enabled: true
+  timeout_seconds: 30
+  max_output_bytes: 102400
+
+# ─── 审计日志 ───
+audit:
+  enabled: true
+  retention_days: 90
+  security_retention_days: 365
+
+# ─── 外部服务 ───
+services:
+  bocha:
+    enabled: true                       # 博查搜索（国内推荐）
+    base_url: "https://api.bochaai.com/v1"
+  soul:
+    name: "eVoiceClaw"
+
+# ─── CORS ───
+cors:
+  allow_origins:
+    - "http://localhost:5173"
+    - "http://localhost:28772"
+    - "http://127.0.0.1:5173"
+    - "http://127.0.0.1:28772"

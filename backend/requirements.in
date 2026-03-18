@@ -1,0 +1,53 @@
+# 原始范围约束（开发参考，实际安装请使用 requirements.txt）
+#
+# 如需升级依赖，修改此文件的范围约束后，在虚拟环境中执行：
+#   pip install -r requirements.in
+#   pip freeze > requirements.txt  （然后手工整理，只保留直接依赖）
+
+# Web 框架
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+
+# LLM 适配
+litellm>=1.55.0
+
+# 向量数据库
+lancedb>=0.17.0
+pyarrow>=18.0.0
+
+# Embedding (本地备选)
+# sentence-transformers>=3.0.0  # 按需启用
+
+# 配置
+pyyaml>=6.0
+
+# 认证
+pyjwt>=2.9.0
+
+# HTTP 客户端
+httpx>=0.28.0
+
+# SSE
+sse-starlette>=2.2.0
+
+# 隐私管道 — AC 自动机多模式匹配
+pyahocorasick>=2.1.0
+
+# 隐私管道 — NER 兜底（CLUENER RoBERTa，CPU 推理 80-120ms）
+# 注意: 远程 MacBook Pro (Intel) 只有 torch<=2.2.2，需锁 numpy<2 保兼容
+# transformers 4.47+ 强制要求 torch>=2.6（CVE-2025-32434），macOS Intel 无预编译包，锁 <4.47
+transformers>=4.36.0,<4.47
+torch>=2.0.0
+numpy>=1.26,<2.0
+
+# 工具
+python-multipart>=0.0.18
+
+# PDF 解析
+pdfplumber>=0.11.0
+
+# OCR（扫描版 PDF 识别，加载失败时自动降级跳过）
+rapidocr-onnxruntime>=1.3.0
+
+# 编译（开发/CI 使用，运行时不需要）
+# cython>=3.0

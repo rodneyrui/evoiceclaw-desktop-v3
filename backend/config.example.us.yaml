@@ -1,0 +1,97 @@
+# eVoiceClaw Desktop v3 — International Model Configuration Template
+# Copy this file to config.yaml and modify as needed
+# API Keys go in secrets.yaml (see secrets.yaml.example)
+#
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  💡 Recommended: enable at least one reasoning-capable model    ║
+# ║                                                                  ║
+# ║  A reasoning model unlocks full smart routing optimization.      ║
+# ║  Without one the system works normally, but advanced features    ║
+# ║  (auto routing rules, prompt tuning) will be disabled.          ║
+# ║                                                                  ║
+# ║  Supported (pick one):                                          ║
+# ║    • OpenAI o3-mini / o1  — openai provider                     ║
+# ║    • DeepSeek R1          — deepseek provider (cost-effective)  ║
+# ╚══════════════════════════════════════════════════════════════════╝
+
+# ─── LLM Defaults ───
+llm:
+  model: "openai/gpt-4o-mini"          # Default: GPT-4o Mini (good balance)
+  temperature: 0.7
+  max_tokens: 4096
+
+# ─── Provider Configuration (enable multiple, smart router auto-selects) ───
+providers:
+  openai:
+    enabled: true
+    models:
+      - "openai/gpt-4o"                # Flagship reasoning
+      - "openai/gpt-4o-mini"           # Fast & affordable
+  anthropic:
+    enabled: false
+    models:
+      - "anthropic/claude-sonnet-4-20250514"   # Balanced
+      - "anthropic/claude-haiku-4-20250414"    # Fast & cheap
+  google:
+    enabled: false
+    base_url: "https://generativelanguage.googleapis.com/v1beta"
+    models:
+      - "google/gemini-2.0-flash"      # Fast multimodal
+      - "google/gemini-2.0-pro"        # Advanced reasoning
+  deepseek:
+    enabled: false
+    base_url: "https://api.deepseek.com/v1"
+    models:
+      - "deepseek/deepseek-chat"       # Ultra low cost
+      - "deepseek/deepseek-reasoner"   # Deep reasoning
+
+# ─── Embedding Configuration ───
+embedding:
+  provider: "openai"
+  model: "text-embedding-3-small"
+  dim: 1536
+  # Local alternative:
+  # provider: "local"
+  # model: "sentence-transformers/all-MiniLM-L6-v2"
+  # dim: 384
+
+# ─── Memory System ───
+memory:
+  reranker:
+    enabled: false
+    model: ""
+
+# ─── Privacy Pipeline ───
+privacy:
+  enabled: true
+  anonymization_strategy: "uuid"
+  sensitivity_levels:
+    critical: true
+    high: true
+    medium: true
+    low: false
+
+# ─── Shell Sandbox ───
+shell:
+  enabled: true
+  timeout_seconds: 30
+  max_output_bytes: 102400
+
+# ─── Audit Logging ───
+audit:
+  enabled: true
+  retention_days: 90
+  security_retention_days: 365
+
+# ─── External Services ───
+services:
+  soul:
+    name: "eVoiceClaw"
+
+# ─── CORS ───
+cors:
+  allow_origins:
+    - "http://localhost:5173"
+    - "http://localhost:28772"
+    - "http://127.0.0.1:5173"
+    - "http://127.0.0.1:28772"

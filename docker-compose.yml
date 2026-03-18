@@ -1,0 +1,41 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: evoiceclaw-desktop-v3:latest
+    container_name: evoiceclaw-desktop-v3
+    restart: unless-stopped
+    ports:
+      - "28772:28772"
+
+    environment:
+      # Override config values via environment variables if needed
+      # These map to config.yaml fields using __ as separator
+      # e.g., APP__SHELL__ENABLED=false
+      - TZ=UTC
+
+    volumes:
+      # Persistent data (LanceDB vectors, SQLite databases)
+      - ./data:/app/data
+
+      # Config files — copy from examples before first run:
+      #   cp backend/config.example.us.yaml backend/config.yaml
+      #   cp backend/secrets.yaml.example backend/secrets.yaml
+      - ./backend/config.yaml:/app/config.yaml:ro
+      - ./backend/secrets.yaml:/app/secrets.yaml:ro
+
+      # Installed Skills persist across container restarts
+      - skills_data:/app/data/skills
+
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:28772/api/v1/system/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  skills_data:
+    driver: local

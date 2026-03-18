@@ -1,0 +1,55 @@
+name: 编译规则引擎（Cython）
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/app/evaluation/rules/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: rules-linux-x86_64
+          - os: macos-latest
+            artifact: rules-macos-arm64
+          - os: windows-latest
+            artifact: rules-windows-x86_64
+
+    runs-on: ${{ matrix.os }}
+    name: 编译 (${{ matrix.os }})
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装编译依赖
+        run: pip install cython setuptools
+
+      - name: 编译规则引擎
+        working-directory: backend
+        run: python ../deploy/compile_rules.py --clean --verify
+
+      - name: 上传编译产物（Linux/macOS）
+        if: runner.os != 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: backend/app/evaluation/rules/*.so
+          retention-days: 90
+
+      - name: 上传编译产物（Windows）
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: backend/app/evaluation/rules/*.pyd
+          retention-days: 90

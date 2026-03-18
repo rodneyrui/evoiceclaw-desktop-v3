@@ -1,0 +1,9 @@
+[project]
+name = "evoiceclaw-desktop-v3"
+version = "3.0.0"
+description = "eVoiceClaw Desktop v3 — AI Operating System"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

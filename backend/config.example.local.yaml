@@ -1,0 +1,87 @@
+# eVoiceClaw Desktop v3 — Local Model Configuration Template
+# For privacy-first users who want to run everything locally
+# Copy this file to config.yaml and modify as needed
+#
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  💡 Recommended: include a local reasoning model                ║
+# ║                                                                  ║
+# ║  A reasoning model unlocks full smart routing optimization.      ║
+# ║  Without one the system works normally, but advanced features    ║
+# ║  (auto routing rules, prompt tuning) will be disabled.          ║
+# ║                                                                  ║
+# ║  Local reasoning options (requires sufficient RAM):             ║
+# ║    • ollama/deepseek-r1:7b   — lightweight (~8 GB RAM)          ║
+# ║    • ollama/deepseek-r1:14b  — better quality (~16 GB RAM)      ║
+# ╚══════════════════════════════════════════════════════════════════╝
+
+# ─── LLM Defaults ───
+llm:
+  model: "ollama/qwen2.5:7b"           # Default: Qwen 2.5 7B via Ollama
+  temperature: 0.7
+  max_tokens: 4096
+
+# ─── Provider Configuration ───
+providers:
+  ollama:
+    enabled: true
+    base_url: "http://localhost:11434/v1"
+    models:
+      - "ollama/qwen2.5:7b"            # Good general purpose (Chinese + English)
+      - "ollama/llama3.1:8b"           # Meta Llama 3.1
+      - "ollama/deepseek-r1:7b"        # DeepSeek R1 distilled
+      - "ollama/codestral:22b"         # Code generation (if RAM allows)
+  lmstudio:
+    enabled: false
+    base_url: "http://localhost:1234/v1"
+    models:
+      - "lmstudio/local-model"         # Configure based on loaded model
+
+# ─── Embedding Configuration ───
+embedding:
+  provider: "local"
+  model: "BAAI/bge-small-zh-v1.5"      # Works well for Chinese + English
+  dim: 512
+  # Alternative for English-only:
+  # model: "sentence-transformers/all-MiniLM-L6-v2"
+  # dim: 384
+
+# ─── Memory System ───
+memory:
+  reranker:
+    enabled: false
+    model: ""
+
+# ─── Privacy Pipeline ───
+privacy:
+  enabled: true
+  anonymization_strategy: "uuid"
+  sensitivity_levels:
+    critical: true
+    high: true
+    medium: true
+    low: false
+
+# ─── Shell Sandbox ───
+shell:
+  enabled: true
+  timeout_seconds: 30
+  max_output_bytes: 102400
+
+# ─── Audit Logging ───
+audit:
+  enabled: true
+  retention_days: 90
+  security_retention_days: 365
+
+# ─── External Services ───
+services:
+  soul:
+    name: "eVoiceClaw"
+
+# ─── CORS ───
+cors:
+  allow_origins:
+    - "http://localhost:5173"
+    - "http://localhost:28772"
+    - "http://127.0.0.1:5173"
+    - "http://127.0.0.1:28772"
