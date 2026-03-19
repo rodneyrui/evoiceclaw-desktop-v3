@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'backend/app/evaluation/rules/**'
+      - 'deploy/compile_rules.py'
   workflow_dispatch:
 
 jobs:
