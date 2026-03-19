@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-"""Cython 编译脚本 — 将 evaluation/rules/ 源码编译为二进制 .so/.pyd
+"""Cython compile script - compile evaluation/rules/ source to binary .so/.pyd
 
-用途：开源发布前将规则生成逻辑（IP 核心）编译为二进制，防止源码泄露。
-
-用法：
+Usage:
     cd backend
-    python ../deploy/compile_rules.py              # 仅编译
-    python ../deploy/compile_rules.py --verify      # 编译 + import 验证
-    python ../deploy/compile_rules.py --clean --verify  # 编译 + 删除源码 + 验证
+    python ../deploy/compile_rules.py              # compile only
+    python ../deploy/compile_rules.py --verify      # compile + import verify
+    python ../deploy/compile_rules.py --clean --verify  # compile + delete source + verify
 
-注意：必须在 backend/ 目录下运行（因为模块路径为 app.evaluation.rules.*）
+Note: must run from backend/ directory (module path is app.evaluation.rules.*)
 """
 
 import argparse
@@ -19,16 +17,17 @@ import platform
 import shutil
 import sys
 
-# 需要编译的文件（排除 r1_prompt.py — 设计文档，非运行时代码）
+# Files to compile (exclude r1_prompt.py - design doc, not runtime code;
+# exclude __init__.py - package marker, no IP to protect)
 RULES_DIR = os.path.join("app", "evaluation", "rules")
 EXCLUDE_FILES = {"r1_prompt.py", "__init__.py"}
 
-# Cython 编译产物后缀
+# Cython output extension
 SO_EXT = ".pyd" if platform.system() == "Windows" else ".so"
 
 
 def get_source_files():
-    """收集需要编译的 .py 文件"""
+    """Collect .py files to compile"""
     pattern = os.path.join(RULES_DIR, "*.py")
     sources = []
     for filepath in sorted(glob.glob(pattern)):
@@ -40,49 +39,47 @@ def get_source_files():
 
 
 def compile_rules():
-    """使用 Cython + setuptools 编译所有规则源文件为 .so/.pyd"""
+    """Compile all rule source files to .so/.pyd using Cython + setuptools"""
     try:
         from Cython.Build import cythonize
     except ImportError:
-        print("错误：未安装 Cython，请先运行 pip install cython", file=sys.stderr)
+        print("Error: Cython not installed, run: pip install cython", file=sys.stderr)
         sys.exit(1)
 
-    from setuptools import Extension, setup
+    from setuptools import Extension
     from setuptools.dist import Distribution
 
     sources = get_source_files()
     if not sources:
-        print("没有需要编译的源文件（仅 __init__.py 和排除文件），跳过编译")
+        print("No source files to compile (only __init__.py and excluded files), skipping")
         return []
 
-    print(f"找到 {len(sources)} 个源文件待编译：")
+    print(f"Found {len(sources)} source files to compile:")
     for s in sources:
         print(f"  - {s}")
 
-    # 构建 Extension 列表
-    # 模块名需要与 import 路径一致，如 app.evaluation.rules.rule_generator
+    # Build Extension list
+    # Module name must match import path, e.g. app.evaluation.rules.rule_generator
     extensions = []
     for filepath in sources:
         # app/evaluation/rules/xxx.py -> app.evaluation.rules.xxx
         module_name = filepath.replace(os.sep, ".").replace("/", ".").removesuffix(".py")
         extensions.append(Extension(module_name, [filepath]))
 
-    # 使用 cythonize 编译
-    print("\n开始 Cython 编译...")
+    # Cythonize
+    print("\nStarting Cython compilation...")
     ext_modules = cythonize(
         extensions,
         compiler_directives={
-            "language_level": "3",  # Python 3 语法
+            "language_level": "3",  # Python 3 syntax
         },
         quiet=False,
     )
 
-    # 通过 setuptools 构建
-    # 使用 build_ext --inplace 将 .so 文件放在源文件旁边
+    # Build via setuptools (build_ext --inplace puts .so next to source)
     dist = Distribution({"ext_modules": ext_modules})
     dist.script_args = ["build_ext", "--inplace"]
 
-    # 抑制 setuptools 的命令行解析
     old_argv = sys.argv
     sys.argv = ["setup.py", "build_ext", "--inplace"]
     try:
@@ -91,14 +88,14 @@ def compile_rules():
     finally:
         sys.argv = old_argv
 
-    print("\n编译完成！")
+    print("\nCompilation done!")
 
-    # 清理中间文件
+    # Clean intermediate files
     cleanup_build_artifacts()
 
-    # 列出生成的 .so/.pyd 文件
+    # List generated .so/.pyd files
     compiled = glob.glob(os.path.join(RULES_DIR, f"*{SO_EXT}"))
-    print(f"\n生成 {len(compiled)} 个二进制文件：")
+    print(f"\nGenerated {len(compiled)} binary files:")
     for f in sorted(compiled):
         size_kb = os.path.getsize(f) / 1024
         print(f"  - {f} ({size_kb:.1f} KB)")
@@ -107,42 +104,42 @@ def compile_rules():
 
 
 def cleanup_build_artifacts():
-    """清理编译产生的中间文件（.c 文件、build/ 目录）"""
-    # 删除 .c 中间文件
+    """Clean intermediate files (.c files, build/ directory)"""
+    # Delete .c intermediate files
     c_files = glob.glob(os.path.join(RULES_DIR, "*.c"))
     for f in c_files:
         os.remove(f)
-        print(f"  清理: {f}")
+        print(f"  cleaned: {f}")
 
-    # 删除 build/ 目录
+    # Delete build/ directory
     if os.path.exists("build"):
         shutil.rmtree("build")
-        print("  清理: build/")
+        print("  cleaned: build/")
 
-    # 删除 *.egg-info
+    # Delete *.egg-info
     for d in glob.glob("*.egg-info"):
         shutil.rmtree(d)
-        print(f"  清理: {d}")
+        print(f"  cleaned: {d}")
 
 
 def clean_source_files(sources):
-    """删除已编译的 .py 源文件（模拟开源发布环境）"""
-    print("\n删除源文件（--clean 模式）：")
+    """Delete compiled .py source files (simulate open-source release)"""
+    print("\nDeleting source files (--clean mode):")
     for filepath in sources:
         if os.path.exists(filepath):
             os.remove(filepath)
-            print(f"  删除: {filepath}")
+            print(f"  deleted: {filepath}")
 
 
 def verify_import():
-    """验证编译后的模块是否可以正常 import"""
-    print("\n验证 import...")
+    """Verify compiled modules can be imported"""
+    print("\nVerifying import...")
 
-    # 确保当前目录在 sys.path 中（backend/）
+    # Ensure cwd is in sys.path (backend/)
     if os.getcwd() not in sys.path:
         sys.path.insert(0, os.getcwd())
 
-    # 清除已缓存的模块，强制重新加载
+    # Clear cached modules to force reload
     modules_to_clear = [k for k in sys.modules if k.startswith("app.evaluation.rules")]
     for m in modules_to_clear:
         del sys.modules[m]
@@ -161,73 +158,73 @@ def verify_import():
             init_usage_trigger,
         )
 
-        # 验证核心类存在
-        assert RuleGenerator is not None, "RuleGenerator 导入失败"
-        assert RulesHotReloader is not None, "RulesHotReloader 导入失败"
-        assert UsageTrigger is not None, "UsageTrigger 导入失败"
-        assert callable(detect_reasoning_model), "detect_reasoning_model 不可调用"
-        assert callable(init_rule_generator), "init_rule_generator 不可调用"
-        assert callable(init_hot_reloader), "init_hot_reloader 不可调用"
-        assert callable(init_usage_trigger), "init_usage_trigger 不可调用"
-        assert callable(get_rule_generator), "get_rule_generator 不可调用"
-        assert callable(get_hot_reloader), "get_hot_reloader 不可调用"
-        assert callable(get_usage_trigger), "get_usage_trigger 不可调用"
+        # Verify core classes exist
+        assert RuleGenerator is not None, "RuleGenerator import failed"
+        assert RulesHotReloader is not None, "RulesHotReloader import failed"
+        assert UsageTrigger is not None, "UsageTrigger import failed"
+        assert callable(detect_reasoning_model), "detect_reasoning_model not callable"
+        assert callable(init_rule_generator), "init_rule_generator not callable"
+        assert callable(init_hot_reloader), "init_hot_reloader not callable"
+        assert callable(init_usage_trigger), "init_usage_trigger not callable"
+        assert callable(get_rule_generator), "get_rule_generator not callable"
+        assert callable(get_hot_reloader), "get_hot_reloader not callable"
+        assert callable(get_usage_trigger), "get_usage_trigger not callable"
 
-        print("  ✓ app.evaluation.rules 导入成功")
-        print("  ✓ 所有公共 API 验证通过")
+        print("  ok: app.evaluation.rules imported successfully")
+        print("  ok: all public APIs verified")
         return True
 
     except Exception as e:
-        print(f"  ✗ 导入失败: {e}", file=sys.stderr)
+        print(f"  FAIL: import error: {e}", file=sys.stderr)
         return False
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Cython 编译 evaluation/rules/ 源码")
+    parser = argparse.ArgumentParser(description="Cython compile evaluation/rules/ source")
     parser.add_argument(
         "--clean",
         action="store_true",
-        help="编译成功后删除 .py 源文件（模拟开源发布环境）",
+        help="Delete .py source files after successful compilation",
     )
     parser.add_argument(
         "--verify",
         action="store_true",
-        help="编译后验证 import 是否正常",
+        help="Verify import after compilation",
     )
     args = parser.parse_args()
 
-    # 检查工作目录
+    # Check working directory
     if not os.path.isdir(RULES_DIR):
         print(
-            f"错误：找不到 {RULES_DIR}\n请在 backend/ 目录下运行此脚本",
+            f"Error: {RULES_DIR} not found\nRun this script from the backend/ directory",
             file=sys.stderr,
         )
         sys.exit(1)
 
     sources = get_source_files()
     if not sources:
-        print("没有需要编译的源文件（仅 __init__.py 和排除文件），跳过")
-        print("\n全部完成！")
+        print("No source files to compile (only __init__.py and excluded files), skipping")
+        print("\nDone!")
         sys.exit(0)
 
-    # 编译
+    # Compile
     compiled = compile_rules()
     if not compiled:
-        print("警告：编译未生成任何文件，跳过后续步骤")
-        print("\n全部完成！")
+        print("Warning: no compiled output, skipping remaining steps")
+        print("\nDone!")
         sys.exit(0)
 
-    # 清理源文件（可选）
+    # Clean source files (optional)
     if args.clean:
         clean_source_files(sources)
 
-    # 验证（可选）
+    # Verify (optional)
     if args.verify:
         success = verify_import()
         if not success:
             sys.exit(1)
 
-    print("\n全部完成！")
+    print("\nDone!")
 
 
 if __name__ == "__main__":
