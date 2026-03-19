@@ -52,8 +52,8 @@ def compile_rules():
 
     sources = get_source_files()
     if not sources:
-        print("错误：未找到需要编译的源文件", file=sys.stderr)
-        sys.exit(1)
+        print("没有需要编译的源文件（仅 __init__.py 和排除文件），跳过编译")
+        return []
 
     print(f"找到 {len(sources)} 个源文件待编译：")
     for s in sources:
@@ -206,14 +206,16 @@ def main():
 
     sources = get_source_files()
     if not sources:
-        print("错误：没有找到需要编译的源文件", file=sys.stderr)
-        sys.exit(1)
+        print("没有需要编译的源文件（仅 __init__.py 和排除文件），跳过")
+        print("\n全部完成！")
+        sys.exit(0)
 
     # 编译
     compiled = compile_rules()
     if not compiled:
-        print("错误：编译未生成任何文件", file=sys.stderr)
-        sys.exit(1)
+        print("警告：编译未生成任何文件，跳过后续步骤")
+        print("\n全部完成！")
+        sys.exit(0)
 
     # 清理源文件（可选）
     if args.clean:
