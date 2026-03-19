@@ -107,6 +107,19 @@ services:
   soul:
     name: "eVoiceClaw"
 
+# ─── 回复验证 ───
+verification:
+  enabled: true
+  auto_correct: false
+  model: "deepseek/deepseek-chat"
+  # 多 Agent 协同整合验证（consult_expert ≥ min_consult_count 次自动触发）
+  deep_think:
+    models:
+      - "deepseek/deepseek-reasoner"
+      - "kimi/kimi-k2-thinking"
+    timeout: 300
+    min_consult_count: 2
+
 # ─── CORS ───
 cors:
   allow_origins:

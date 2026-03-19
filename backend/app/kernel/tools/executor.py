@@ -17,8 +17,9 @@ from app.security.audit import log_event
 
 logger = logging.getLogger("evoiceclaw.kernel.tool_executor")
 
-# 工具调用最大轮次（防止 LLM 陷入无限循环咨询）
-MAX_TOOL_ROUNDS = 5
+# 工具调用最大轮次（极端安全兜底，正常不应触发）
+# Agent 的工作能力不应被过度限制，用户在场可随时终止任务
+MAX_TOOL_ROUNDS = 999
 
 # 单次工具执行超时（秒）— 可被工具实例的 tool_timeout 属性覆盖
 DEFAULT_TOOL_TIMEOUT = 30

@@ -159,6 +159,68 @@ def _derive_intent(req: dict[str, int]) -> str:
     return _DIM_TO_INTENT.get(top_dim, "general")
 
 
+def _log_prediction_decision(
+    predictor: str, requirements: dict, message: str, *,
+    confidence: float | None = None, model: str | None = None,
+) -> None:
+    """记录需求预测决策快照到审计日志"""
+    try:
+        from app.security.audit import log_event
+        detail = {
+            "predictor": predictor,
+            "requirements": {k: v for k, v in requirements.items() if v > 0},
+            "input_preview": message[:80],
+        }
+        if confidence is not None:
+            detail["confidence"] = round(confidence, 3)
+        if model:
+            detail["classify_model"] = model
+        log_event(
+            component="smart_router",
+            action="PREDICTION_DECISION",
+            detail=json.dumps(detail, ensure_ascii=False),
+        )
+    except Exception:
+        pass  # 审计失败不影响路由
+
+
+# ── 需求向量后置修正规则 ──
+
+# 暗示多 Agent 协作的关键词（用户消息包含这些时，agent_tool_use 应该更高）
+_MULTI_AGENT_KEYWORDS = (
+    "多角度", "多个角度", "多方面", "多维度", "多领域",
+    "分别从", "从不同", "各个方面",
+    "专家", "咨询", "多位", "多个专家",
+    "对比分析", "交叉验证", "综合分析",
+    "基于文件夹", "基于多个文件", "多个文档",
+    "写论文", "写报告", "撰写论文", "撰写报告",
+    "multi-agent", "multi-perspective", "multiple experts",
+)
+
+
+def _apply_post_rules(req: dict[str, int], message: str) -> dict[str, int]:
+    """对预测出的需求向量做后置修正
+
+    kNN/LLM 对某些隐含多 Agent 协作的任务预测 agent_tool_use 偏低，
+    通过关键词检测强制提升，确保协作 bonus 能触发。
+    """
+    msg_lower = message.lower()
+    matched = [kw for kw in _MULTI_AGENT_KEYWORDS if kw in msg_lower]
+
+    if matched:
+        old_val = req.get("agent_tool_use", 0)
+        # 匹配 1 个关键词提升到至少 5，匹配 2+ 个提升到至少 7
+        min_val = 7 if len(matched) >= 2 else 5
+        if old_val < min_val:
+            req["agent_tool_use"] = min_val
+            logger.info(
+                "[后置规则] agent_tool_use %d→%d (匹配: %s)",
+                old_val, min_val, matched[:3],
+            )
+
+    return req
+
+
 async def predict_requirements(message: str, config: dict) -> dict[str, int]:
     """预测用户消息的 15 维需求向量
 
@@ -182,7 +244,8 @@ async def predict_requirements(message: str, config: dict) -> dict[str, int]:
                     "[智能路由] kNN 预测 (confidence=%.3f): %s | 输入=%s",
                     confidence, {k: v for k, v in req.items() if v > 0}, message[:60],
                 )
-                return req
+                _log_prediction_decision("knn", req, message, confidence=confidence)
+                return _apply_post_rules(req, message)
             else:
                 # 低置信度，降级到 LLM 分类器
                 logger.info(
@@ -193,7 +256,8 @@ async def predict_requirements(message: str, config: dict) -> dict[str, int]:
             logger.warning("[智能路由] kNN 预测异常: %s，降级 LLM 分类器", e)
 
     # ── 路径 2：LLM 分类器（降级） ──
-    return await _predict_requirements_llm(message, config)
+    req = await _predict_requirements_llm(message, config)
+    return _apply_post_rules(req, message)
 
 
 async def _predict_requirements_llm(message: str, config: dict) -> dict[str, int]:
@@ -246,6 +310,7 @@ async def _predict_requirements_llm(message: str, config: dict) -> dict[str, int
             "[智能路由] LLM 需求向量: %s | 输入=%s",
             {k: v for k, v in req.items() if v > 0}, message[:60],
         )
+        _log_prediction_decision("llm", req, message, model=classify_model)
         return req
 
     except json.JSONDecodeError:

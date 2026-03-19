@@ -371,3 +371,121 @@ def test_select_auditor_model_fallback_no_router():
     # 不论成功与否，都应返回非空字符串
     assert isinstance(auditor, str)
     assert len(auditor) > 0
+
+
+# ── 11. 多 Agent 协同整合：consult_expert 触发深度思考验证 ──────
+
+
+def test_consult_expert_2_triggers_deep_think():
+    """consult_expert 出现 2 次 → 触发 deep_think_review"""
+    long_reply = "综合两位专家的意见，该论文的方法论存在以下问题：样本量不足、对照组缺失。" * 3
+    result, method = should_verify(
+        user_message="帮我分析这篇论文",
+        assistant_reply=long_reply,
+        tool_names_used=["consult_expert", "consult_expert"],
+    )
+    assert result is True
+    assert method == "deep_think_review"
+
+
+def test_consult_expert_3_triggers_deep_think():
+    """consult_expert 出现 3 次也触发"""
+    long_reply = "三位专家分别从不同角度分析了该技术方案的可行性，结论如下。" * 3
+    result, method = should_verify(
+        user_message="评估这个方案",
+        assistant_reply=long_reply,
+        tool_names_used=["consult_expert", "consult_expert", "consult_expert"],
+    )
+    assert result is True
+    assert method == "deep_think_review"
+
+
+def test_consult_expert_1_no_trigger():
+    """consult_expert 仅 1 次不触发 deep_think_review"""
+    long_reply = "根据专家意见，该方案基本可行，但需要注意以下几个细节问题。" * 3
+    result, method = should_verify(
+        user_message="问问专家",
+        assistant_reply=long_reply,
+        tool_names_used=["consult_expert"],
+    )
+    # 不应触发 deep_think_review（可能触发其他规则或不触发）
+    assert method != "deep_think_review"
+
+
+def test_consult_expert_with_custom_threshold():
+    """通过 config 自定义 min_consult_count 阈值"""
+    long_reply = "综合多位专家意见，结论如下，该方案在技术上可行但成本偏高。" * 3
+    config = {"verification": {"deep_think": {"min_consult_count": 3}}}
+    # 2 次不够（阈值为 3）
+    result, method = should_verify(
+        user_message="分析方案",
+        assistant_reply=long_reply,
+        tool_names_used=["consult_expert", "consult_expert"],
+        config=config,
+    )
+    assert method != "deep_think_review"
+
+    # 3 次达到阈值
+    result, method = should_verify(
+        user_message="分析方案",
+        assistant_reply=long_reply,
+        tool_names_used=["consult_expert", "consult_expert", "consult_expert"],
+        config=config,
+    )
+    assert result is True
+    assert method == "deep_think_review"
+
+
+def test_consult_expert_mixed_with_external_tools():
+    """consult_expert + 外部数据工具 → 外部数据工具优先跳过验证"""
+    long_reply = "根据搜索和专家意见，该数据基本准确，来源可靠。" * 3
+    result, method = should_verify(
+        user_message="验证数据",
+        assistant_reply=long_reply,
+        tool_names_used=["consult_expert", "consult_expert", "web_search"],
+    )
+    # web_search 在 _EXTERNAL_DATA_TOOLS 中，优先跳过
+    assert result is False
+
+
+# ── 12. _verify_by_deep_think 单元测试 ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_verify_by_deep_think_no_available_models():
+    """无可用深度思考模型时返回 None"""
+    from app.services.verification_service import _verify_by_deep_think
+
+    # 空 config → router 不可用 → 返回 None
+    result = await _verify_by_deep_think("问题", "回复" * 50, {})
+    assert result is None
+
+
+# ── 13. verify_response deep_think_review 分支 ──────────────────
+
+
+@pytest.mark.asyncio
+async def test_verify_response_deep_think_degrades_to_strong():
+    """deep_think_review 不可用时降级到 strong_model_review"""
+    from unittest.mock import patch, AsyncMock
+    from app.services.verification_service import verify_response
+
+    mock_result = VerificationResult(
+        verified=True, confidence="medium", issues=[],
+        summary="mock 审核通过", method="strong_model_review", elapsed_ms=100,
+    )
+
+    # 深度思考模型不可用 → 降级到 strong_model_review → mock _verify_by_model
+    with patch(
+        "app.services.verification_service._verify_by_model",
+        new_callable=AsyncMock,
+        return_value=mock_result,
+    ):
+        result = await verify_response(
+            user_message="测试问题",
+            assistant_reply="测试回复" * 50,
+            config={"verification": {"enabled": True}, "providers": {}},
+            method="deep_think_review",
+        )
+    assert result is not None
+    assert isinstance(result, VerificationResult)

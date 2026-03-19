@@ -18,7 +18,7 @@ import type { ToolCallInfo } from "@/features/chat/useDirectChat";
 
 interface Message {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "divider";
   content: string;
   model?: string;
   provider?: string;
@@ -101,6 +101,15 @@ export function MessageList({
         className="h-full"
         itemContent={(_index, message) => (
           <div className="px-6 py-3">
+            {message.role === "divider" ? (
+              <div className="flex items-center gap-3 my-2">
+                <div className="flex-1 h-px bg-border" />
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  {t("chat.freshDivider")}
+                </span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+            ) : (
             <div
               className={cn(
                 "flex w-full",
@@ -183,6 +192,7 @@ export function MessageList({
                 </div>
               </div>
             </div>
+            )}
           </div>
         )}
         components={{

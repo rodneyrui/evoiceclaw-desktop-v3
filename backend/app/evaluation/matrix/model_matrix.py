@@ -125,6 +125,9 @@ class ModelProfile:
     speed_score: float = 50.0      # 速度分：延迟越低越高
     context_score: float = 84.0    # 上下文分：窗口越大越高
 
+    # 行为特性标注（基于实测）
+    parallel_tool_calls: bool = False  # 是否支持在单轮中发出多个工具调用
+
     # 元数据
     source: str = "preset"
     not_measured_dims: List[str] = None
@@ -209,6 +212,7 @@ def _parse_model_entry(model: dict) -> ModelProfile:
         cost_score=cost_score,
         speed_score=speed_score,
         context_score=context_score,
+        parallel_tool_calls=model.get("parallel_tool_calls", False),
         source=model.get("source", "preset"),
         not_measured_dims=not_measured,
     )
@@ -449,8 +453,36 @@ def select_models_by_requirements(
     if not scored:
         return candidates[:top_k] if candidates else []
 
+    # 协作升级：当任务需要高度工具协作时，给支持并行工具调用的模型加分
+    boosted_models: List[str] = []
+    agent_tool_need = requirements.get("agent_tool_use", 0)
+    if agent_tool_need >= 7:
+        for i, (model_id, s) in enumerate(scored):
+            profile = matrix.get_model_profile(model_id)
+            if profile and profile.parallel_tool_calls:
+                # 加 15% bonus — 足以在分数接近时胜出，但不会压倒性优势
+                scored[i] = (model_id, s * 1.15)
+                boosted_models.append(model_id)
+
     scored.sort(key=lambda x: x[1], reverse=True)
     result = [model_id for model_id, _ in scored[:top_k]]
+
+    # 决策快照审计：记录完整的路由决策过程
+    try:
+        from app.security.audit import log_event
+        log_event(
+            component="smart_router",
+            action="ROUTING_DECISION",
+            detail=json.dumps({
+                "requirements": {k: v for k, v in requirements.items() if v > 0},
+                "scores": {mid: round(s, 2) for mid, s in scored[:min(len(scored), 8)]},
+                "selected": result,
+                "candidates_count": len(candidates),
+                "collaboration_boost": boosted_models,
+            }, ensure_ascii=False),
+        )
+    except Exception:
+        pass  # 审计失败不影响路由
 
     logger.info(
         "[动态路由] 需求=%s → 候选=%s",

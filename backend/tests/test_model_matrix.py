@@ -13,6 +13,7 @@ from pathlib import Path
 from app.evaluation.matrix.model_matrix import (
     ModelProfile,
     score_model_for_requirement_dict,
+    select_models_by_requirements,
     ModelMatrix,
 )
 
@@ -216,3 +217,80 @@ class TestScoreModelForRequirementDict:
         score_fast = score_model_for_requirement_dict(fast_model, req)
         score_slow = score_model_for_requirement_dict(slow_model, req)
         assert score_fast == score_slow
+
+
+# ─── 协作 bonus（parallel_tool_calls 升级）────────────────────────────────
+
+class TestCollaborationBoost:
+    """测试高协作需求时 parallel_tool_calls 模型获得 bonus"""
+
+    def _build_matrix_with_models(self, profiles: list[ModelProfile]) -> ModelMatrix:
+        """构造一个包含指定模型的 ModelMatrix"""
+        m = ModelMatrix()
+        m._cache = {p.display_name: p for p in profiles}
+        m._loaded = True
+        return m
+
+    def test_高协作需求时并行模型排名上升(self):
+        """agent_tool_use=8 时，parallel_tool_calls=True 的模型应获得 bonus"""
+        # MiniMax：agent_tool_use 低但支持并行，coding 更强
+        minimax = ModelProfile(
+            provider="minimax", model="MiniMax-M2.5", display_name="minimax/MiniMax-M2.5",
+            agent_tool_use=66.0, coding=90.0,
+            parallel_tool_calls=True,
+        )
+        # 对照模型：agent_tool_use 高但不支持并行，coding 稍弱
+        other = ModelProfile(
+            provider="other", model="other-chat", display_name="other/other-chat",
+            agent_tool_use=99.0, coding=80.0,
+            parallel_tool_calls=False,
+        )
+
+        matrix = self._build_matrix_with_models([minimax, other])
+        req = {"agent_tool_use": 8, "coding": 8}
+
+        with patch("app.evaluation.matrix.model_matrix.get_matrix", return_value=matrix), \
+             patch("app.evaluation.matrix.model_matrix.random.uniform", return_value=0.0):
+            result = select_models_by_requirements(
+                req,
+                ["minimax/MiniMax-M2.5", "other/other-chat"],
+                top_k=2,
+            )
+
+        # 15% bonus 弥补了 agent_tool_use 的分差，MiniMax 应排第一
+        assert result[0] == "minimax/MiniMax-M2.5"
+
+    def test_低协作需求时无bonus(self):
+        """agent_tool_use=3 时，不应触发协作 bonus"""
+        minimax = ModelProfile(
+            provider="minimax", model="MiniMax-M2.5", display_name="minimax/MiniMax-M2.5",
+            agent_tool_use=66.0, coding=85.0,
+            parallel_tool_calls=True,
+        )
+        deepseek = ModelProfile(
+            provider="deepseek", model="deepseek-chat", display_name="deepseek/deepseek-chat",
+            agent_tool_use=99.0, coding=94.0,
+            parallel_tool_calls=False,
+        )
+
+        matrix = self._build_matrix_with_models([minimax, deepseek])
+        req = {"agent_tool_use": 3, "coding": 8}
+
+        with patch("app.evaluation.matrix.model_matrix.get_matrix", return_value=matrix), \
+             patch("app.evaluation.matrix.model_matrix.random.uniform", return_value=0.0):
+            result = select_models_by_requirements(
+                req,
+                ["minimax/MiniMax-M2.5", "deepseek/deepseek-chat"],
+                top_k=2,
+            )
+
+        # 无 bonus，DeepSeek 凭更高的 agent_tool_use 和 coding 分数胜出
+        assert result[0] == "deepseek/deepseek-chat"
+
+    def test_parallel_tool_calls默认为False(self):
+        p = ModelProfile(provider="t", model="m", display_name="T")
+        assert p.parallel_tool_calls is False
+
+    def test_parallel_tool_calls可设置为True(self):
+        p = ModelProfile(provider="t", model="m", display_name="T", parallel_tool_calls=True)
+        assert p.parallel_tool_calls is True

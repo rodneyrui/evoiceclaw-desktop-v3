@@ -88,6 +88,19 @@ services:
   soul:
     name: "eVoiceClaw"
 
+# ─── Response Verification ───
+verification:
+  enabled: true
+  auto_correct: false
+  model: "openai/gpt-4o-mini"
+  # Multi-agent collaboration verification (auto-triggered when consult_expert >= min_consult_count)
+  deep_think:
+    models:
+      - "deepseek/deepseek-reasoner"
+      - "kimi/kimi-k2-thinking"
+    timeout: 300
+    min_consult_count: 2
+
 # ─── CORS ───
 cors:
   allow_origins:

@@ -149,3 +149,47 @@ In practice, we observe that expert models from different providers consistently
 4. **Declarative constraints** — Policy tags say "what safety level" not "which model"
 5. **Pure scheduling** — SmartRouter makes a fresh decision at every LLM call, using the latest evaluation data
 6. **Cost compounds** — each agent uses the cheapest model that fits its specialty; savings multiply in collaboration
+7. **Controlled emergence** — emergent collaboration happens inside a bounded sandbox with hard limits, full audit trails, and circuit breakers; uncontrolled emergence is a bug, controlled emergence is a feature
+
+---
+
+## Controllability: From Observable to Transactional
+
+The system's multi-agent collaboration is "constrained emergence" — agents autonomously decide collaboration strategies, but within hard boundaries enforced by code.
+
+### Layer 1: Decision Audit Trail (Implemented)
+
+Every routing decision is recorded as a structured audit event:
+
+- `PREDICTION_DECISION` — which predictor (kNN vs LLM), confidence score, 15-dim requirement vector
+- `ROUTING_DECISION` — all candidate model scores, final selection, requirement vector
+- `EXPERT_ROUTING_DECISION` — domain, parent model, routed expert, self-avoidance trigger, recursion depth, remaining budget
+
+This enables post-hoc analysis: "why was this model chosen for this request?"
+
+### Layer 2: Declarative Collaboration Policy (Planned)
+
+Extract natural-language constraints from system prompts into enforceable configuration:
+
+```yaml
+collaboration_policy:
+  max_rounds: 2
+  max_experts_per_round: 4
+  dedup: true
+  synthesis_threshold: 3000
+  fallback_on_timeout: self
+  circuit_breaker:
+    provider_failure_threshold: 2
+    degrade_to: single_agent
+```
+
+Code enforces these constraints at the ToolExecutor layer. System prompts remain as soft guidance.
+
+### Layer 3: Collaboration Transactions (Research)
+
+Compensating transactions for multi-expert collaboration:
+- Context snapshots before each expert input
+- Arbitration rounds when contradictions are detected (stronger model adjudicates)
+- Confidence and disagreement annotations on final output
+
+This extends the existing VerificationService from "verify final output" to "verify intermediate collaboration process."

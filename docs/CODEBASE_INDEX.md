@@ -1,7 +1,7 @@
 # eVoiceClaw Desktop v3 — 代码索引 (CODEBASE_INDEX)
 
-> 最后更新: 2026-03-18
-> 状态: V3.4 SmartRouter 语义向量路由（bge-small kNN 优先 → LLM 降级）+ Multi-Agent 协作基础设施
+> 最后更新: 2026-03-19
+> 状态: V3.4 SmartRouter 语义向量路由（bge-small kNN 优先 → LLM 降级）+ Multi-Agent 协作基础设施 + 深度思考双验证
 > 用途: 动态维护文件-职责映射，每次新增/修改/删除文件时同步更新
 
 ---
@@ -58,7 +58,7 @@
 | `kernel/router/smart_router.py` | 快速路径 → kNN 向量预测优先（~30ms）→ LLM 分类器降级 → 模型选择（12 能力 + 3 规格需求维度） | ✅ 已更新 | 重构自 v2 `services/smart_router.py` |
 | `kernel/router/knn_predictor.py` | kNN 需求向量预测器：bge-small 编码 + 2026 条 R1 标注锚点 + top-5 加权回归 + .npy 缓存 + 置信度分流（std>1.42 降级 LLM） | ✅ 已创建 | 新建（2026-03-17） |
 | `kernel/router/llm_router.py` | API/CLI 通道分派 + fallback 降级 + collect_stream_text | ✅ 已创建 | 迁移自 v2 `services/llm/llm_router.py` |
-| `kernel/router/model_matrix.py` | 15 维需求向量评分矩阵（12 能力 + 3 规格需求，动态权重替代硬编码成本惩罚） | ✅ 已创建 | 精简自 v2 `infrastructure/model_matrix.py` |
+| `kernel/router/model_matrix.py` | 15 维需求向量评分矩阵（12 能力 + 3 规格需求，动态权重替代硬编码成本惩罚）+ 协作 bonus（parallel_tool_calls 模型在高 agent_tool_use 需求时获 15% 加分） | ✅ 已更新 | 精简自 v2 `infrastructure/model_matrix.py` |
 | `kernel/router/policy_engine.py` | PolicyEngine 硬性约束筛选（exclude_providers/exclude_models/require_tool_support + 全部排除安全回退）；config.yaml `policy_rules` 加载；全局单例 | ✅ 已创建 | 新建（2026-03-18） |
 | `kernel/providers/api_provider.py` | LiteLLM 统一接口 + provider 映射内联 + tool_calls 累积 | ✅ 已创建 | 迁移自 v2 `services/llm/api_provider.py` |
 | `kernel/providers/cli_provider.py` | Claude Code CLI stream-json 包装器 | ✅ 已创建 | 迁移自 v2 `services/llm/cli_agent_provider.py` |
@@ -132,7 +132,7 @@
 | `services/chat_service.py` | 对话引擎（流式 + 工具循环 + 隐私管道集成 + workspace_id 传递 + privacy.strict_mode 脱敏拒绝 + auto 模式 stream_with_fallback 降级 + URL预处理 + 过期蒸馏 + 14个内置工具注册 + 回复验证集成） | ✅ 已创建 | 重构自 v2 `services/chat_service.py` |
 | `services/skill_service.py` | Skill 生命周期管理（安装+更新+卸载+版本+ACTIONS + authorization_mode 授权模式） | ✅ 已创建 | 重构 |
 | `services/workspace_service.py` | 工作区管理（注册/激活/注销/文件树 + 全局单例 + JSON 元数据持久化 + shell/network/env 配置 + 工作区级 secrets.json 加密存储） | ✅ 已创建 | 新建 |
-| `services/verification_service.py` | 回复验证服务（确定性规则触发 + 三层验证: legacy/强模型交叉/搜索验证 + 自动修正 + 模型能力画像驱动审核模型选择）；`has_multiple_api_providers()` 单 Provider 禁用守卫；领域知识从 `data/generated_rules/verification_config.yaml` 动态加载，未生成时英文 Prompt 降级；`_set_verification_config_for_testing()` 供测试注入 | ✅ 已创建 | 迁移自 v2 `services/verification/verification_service.py` |
+| `services/verification_service.py` | 回复验证服务（确定性规则触发 + 四层验证: legacy/强模型交叉/搜索验证/深度思考双模型 + 自动修正 + 模型能力画像驱动审核模型选择）；`_verify_by_deep_think()` 并行调用 DeepSeek R1 + Kimi K2 Thinking（consult_expert ≥2 次触发，asyncio.gather + 300s 超时，任一发现问题即不通过）；`has_multiple_api_providers()` 单 Provider 禁用守卫；领域知识从 `data/generated_rules/verification_config.yaml` 动态加载，未生成时英文 Prompt 降级；`_set_verification_config_for_testing()` 供测试注入 | ✅ 已更新 | 迁移自 v2 `services/verification/verification_service.py` |
 | `services/soul_service.py` | 人格系统 | ⏳ 待创建 | 迁移自 v2（简化） |
 | `services/quota_service.py` | 额度管理 | ⏳ 待创建 | 迁移自 v2 |
 
@@ -241,7 +241,7 @@
 | `data/journals/` | 对话日志 |
 | `data/configs/zh/doc_type_templates.yaml` | 中文文档类型模板（10 种: 征信报告/合同/借条/病历/简历/发票/银行流水/房产证/身份证/保险单） |
 | `data/configs/en/doc_type_templates.yaml` | 英文文档类型模板（6 种: credit_report/contract/medical_record/resume/bank_statement/tax_return） |
-| `data/preset/preset_evaluations.json` | 模型预置画像数据（19 个模型 × 12 维度评分 + 成本 + 上下文窗口） |
+| `data/preset/preset_evaluations.json` | 模型预置画像数据（18 个模型 × 12 维度评分 + 成本 + 上下文窗口 + parallel_tool_calls 行为特性标注） |
 | `data/preset/preset_common_sense.json` | 通用常识记忆数据（30 条，7 类） |
 | `data/preset/intent_anchors.jsonl` | kNN 需求向量预测锚点数据（2026 条 R1 标注，15 维 0-10，从 Cerebellum train.jsonl 复制） |
 | `data/preset/default_rules/` | 预置默认规则（4 个 YAML），首次安装时复制到 `data/generated_rules/`，开源用户无需推理模型即可使用 |
@@ -262,6 +262,7 @@
 | `tests/test_execution_context.py` | ExecutionContext 单元测试（16 用例: 默认值/递归保护/budget/child/ContextVar 隔离） | ✅ 已创建 |
 | `tests/test_consult_expert.py` | consult_expert 工具测试（14 用例: 递归拒绝/自咨询避免/正常调用/异常/上下文恢复） | ✅ 已创建 |
 | `tests/test_policy_engine.py` | PolicyEngine 测试（14 用例: exclude_providers/exclude_models/全部排除回退/config 加载/单例） | ✅ 已创建 |
+| `tests/test_verification_service.py` | 回复验证服务测试（34 用例: 触发规则 8 场景 + 高风险声称 + 事实提取 + 数据模型 + 审核模型降级 + consult_expert 触发/阈值/降级/外部工具优先 + 深度思考不可用降级） | ✅ 已更新 |
 
 ---
 
@@ -325,4 +326,5 @@
 | 2026-03-12 | 逻辑层审计 6 项修复: chat_service.py 新增 _get_active_workspace_id()+workspace_id 传递给 pipeline/executor + privacy.strict_mode 脱敏拒绝开关 + auto 模式 stream_with_fallback 降级(导入 select_models_for_direct_chat); context_compressor.py 新增 _group_into_blocks() 按逻辑块截断(保护 tool_calls+tool 消息对); executor.py execute()/execute_all() 新增 workspace_id 参数+_context 注入+审计日志记录 workspace_id + _check_permissions() 跳过时 debug 日志 |
 | 2026-03-12 | filesystem _is_safe_path 修复: filesystem.py 新增 `_is_safe_path()` 统一路径安全检查(黑名单+白名单); ReadFileTool/ListDirectoryTool 改用 _is_safe_path 替代 _is_blocked_read_path; WriteFileTool/EditFileTool 改用 _is_safe_path 替代 _is_safe_write_path; 修复 28 个测试失败，全量 833 测试通过 |
 | 2026-03-12 | 工作区前端完整实现 + PDF OCR 修复 + model_alias 正则扩展: WorkspacePage.tsx 从占位页面升级为完整功能页面; zh-CN.json/en-US.json 补全 18 个 workspace.* key; pdf_reader.py 安全检查改用 _is_safe_path + OCR 分辨率 300 DPI + 扫描版诊断提示; requirements.txt rapidocr-onnxruntime 取消注释; model_alias.py 新增「让 R1 来，任务」和「让 R1，任务」两条正则模式，修复"让 R1 来"无法识别的问题 |
-| 2026-03-17 | V3.4 语义向量路由升级: 新建 kernel/router/knn_predictor.py（KNNPredictor 类，bge-small 编码 + 2026 条 R1 标注锚点 + top-5 kNN 加权回归 + .npy 缓存 + 置信度分流）；smart_router.py predict_requirements() 改为双路径（kNN 优先 ~30ms → LLM 降级 ~500ms），原 LLM 逻辑提取为 _predict_requirements_llm()；main.py lifespan 新增 kNN predictor warmup（embedding 初始化后、隐私管道前）；新增 data/preset/intent_anchors.jsonl（从 Cerebellum train.jsonl 复制）；移除已回退的 cerebellum_predictor.py 索引条目 |
+| 2026-03-19 | 协作 bonus：ModelProfile 新增 `parallel_tool_calls` 行为特性字段；`select_models_by_requirements()` 当 `agent_tool_use >= 7` 时给 `parallel_tool_calls=True` 的模型加 15% bonus；`preset_evaluations.json` 标注 MiniMax-M2.5 支持并行工具调用；审计日志新增 `collaboration_boost` 字段；`test_model_matrix.py` 新增 `TestCollaborationBoost` 测试类（4 用例） |
+| 2026-03-19 | Phase 6.5 深度思考双验证: verification_service.py 新增 `_verify_by_deep_think()`（并行调用 DeepSeek R1 + Kimi K2 Thinking）+ `should_verify()` 新增 config 参数和 consult_expert 触发条件 + `verify_response()` 新增 deep_think_review 分支 + `_verify_by_model()` 新增 max_reply_len 参数；chat_service.py 传入 config；config.yaml/config.example.cn.yaml/config.example.us.yaml 新增 verification.deep_think 配置段；test_verification_service.py 新增 7 个用例（34 总计） |

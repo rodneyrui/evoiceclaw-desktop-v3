@@ -31,7 +31,8 @@
     "toolCompleted": "{{count}} operations completed",
     "toolFailed": "{{count}} failed",
     "history": "History",
-    "messages": "messages"
+    "messages": "messages",
+    "freshDivider": "New conversation context"
   },
   "skills": {
     "title": "Skill Management",

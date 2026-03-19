@@ -21,7 +21,7 @@ import sys
 
 # 需要编译的文件（排除 r1_prompt.py — 设计文档，非运行时代码）
 RULES_DIR = os.path.join("app", "evaluation", "rules")
-EXCLUDE_FILES = {"r1_prompt.py"}
+EXCLUDE_FILES = {"r1_prompt.py", "__init__.py"}
 
 # Cython 编译产物后缀
 SO_EXT = ".pyd" if platform.system() == "Windows" else ".so"

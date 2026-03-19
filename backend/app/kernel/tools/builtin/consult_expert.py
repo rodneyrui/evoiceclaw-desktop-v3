@@ -20,6 +20,51 @@ from app.kernel.tools.protocol import SkillProtocol
 
 logger = logging.getLogger("evoiceclaw.tool.consult_expert")
 
+# 综合任务优先选用的推理模型（按优先级排序）
+_REASONING_MODELS_PRIORITY = [
+    "deepseek/deepseek-reasoner",
+    "kimi/kimi-k2-thinking",
+    "qwen/qwen-max",
+    "qwen/qwen-plus",
+    "zhipu/glm-5",
+]
+
+
+async def _select_reasoning_model_for_synthesis(
+    config: dict,
+    parent_model_id: str | None = None,
+) -> tuple[str, str, list[str]]:
+    """综合任务专用：直接选推理能力最强的可用模型，跳过 kNN 路由
+
+    Returns:
+        (model_id, intent, fallback_candidates)
+    """
+    router = get_router()
+    all_models = router.get_available_models(config)
+    available_ids = {m["id"] for m in all_models if m.get("type") == "api"}
+
+    # 按优先级找第一个可用的推理模型（排除父模型避免自咨询）
+    candidates: list[str] = []
+    for mid in _REASONING_MODELS_PRIORITY:
+        if mid in available_ids:
+            candidates.append(mid)
+
+    # 补充其他可用模型作为 fallback
+    for mid in available_ids:
+        if mid not in candidates:
+            candidates.append(mid)
+
+    if not candidates:
+        # 极端回退
+        return ("", "reasoning", [])
+
+    # 首选非父模型
+    chosen = candidates[0]
+    if chosen == parent_model_id and len(candidates) > 1:
+        chosen = candidates[1]
+
+    return (chosen, "reasoning", candidates[:3])
+
 
 class ConsultExpertTool(SkillProtocol):
     """专家咨询工具：调用另一个 LLM 获取专业意见"""
@@ -105,15 +150,32 @@ class ConsultExpertTool(SkillProtocol):
         start_ms = time.monotonic()
 
         # ── 路由选专家模型 ──
-        routing_message = f"{domain_hint} {question}" if domain_hint else question
-        expert_model_id, intent, fallback_candidates = await select_model_with_intent(
-            routing_message, config,
-        )
+        # 综合任务检测：如果 question 包含综合/分析推理关键词，
+        # 直接选推理模型，跳过 kNN 路由（避免 long_context 维度干扰）
+        _SYNTHESIS_KEYWORDS = ("综合", "整合", "汇总各", "分析推理", "找出矛盾",
+                               "synthesize", "integrate", "reconcile")
+        is_synthesis = any(kw in question for kw in _SYNTHESIS_KEYWORDS)
+
+        if is_synthesis:
+            # 综合任务：直接从可用模型中选推理能力最强的
+            expert_model_id, intent, fallback_candidates = await _select_reasoning_model_for_synthesis(
+                config, ctx.parent_model_id,
+            )
+            logger.info(
+                "[专家咨询] 综合任务，直接选推理模型: %s (跳过kNN路由)",
+                expert_model_id,
+            )
+        else:
+            routing_message = f"{domain_hint} {question}" if domain_hint else question
+            expert_model_id, intent, fallback_candidates = await select_model_with_intent(
+                routing_message, config,
+            )
 
         if not expert_model_id:
             return "错误：无可用的专家模型"
 
         # ── 自咨询避免 ──
+        original_expert = expert_model_id
         if expert_model_id == ctx.parent_model_id and fallback_candidates:
             for candidate in fallback_candidates:
                 if candidate != ctx.parent_model_id:
@@ -123,6 +185,28 @@ class ConsultExpertTool(SkillProtocol):
                     )
                     expert_model_id = candidate
                     break
+
+        # ── 决策快照审计 ──
+        try:
+            from app.security.audit import log_event
+            import json as _json
+            log_event(
+                component="consult_expert",
+                action="EXPERT_ROUTING_DECISION",
+                detail=_json.dumps({
+                    "domain_hint": domain_hint,
+                    "question_preview": question[:80],
+                    "parent_model": ctx.parent_model_id,
+                    "routed_expert": original_expert,
+                    "final_expert": expert_model_id,
+                    "self_avoidance": original_expert != expert_model_id,
+                    "fallback_candidates": fallback_candidates[:5],
+                    "depth": ctx.depth,
+                    "remaining_budget": ctx.remaining_budget,
+                }, ensure_ascii=False),
+            )
+        except Exception:
+            pass
 
         # ── 构建咨询消息 ──
         system_content = "你是一个专业顾问。请针对以下问题给出专业、准确、有依据的回答。使用中文回复。"

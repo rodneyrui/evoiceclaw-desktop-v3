@@ -736,6 +736,7 @@ async def chat_stream(
                         need_verify, v_method = should_verify(
                             message, full_reply, tool_names_used,
                             model_id=actual_model_id, intent=intent,
+                            config=config,
                         )
                         if need_verify:
                             v_result = await verify_response(

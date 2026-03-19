@@ -33,7 +33,7 @@ export interface ToolCallInfo {
 
 export interface DirectChatMessage {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "divider";
   content: string;
   model?: string;
   provider?: string;
@@ -583,6 +583,20 @@ export function useDirectChat() {
   const sendMessage = useCallback(
     (text: string) => {
       if (!selectedModelRef.current) return;
+
+      // /fresh 命令：重置 LLM 上下文（生成新 conversation_id），保留界面历史
+      if (text.trim().toLowerCase() === "/fresh") {
+        const newId = generateId();
+        conversationId.current = newId;
+        saveConvId(newId);
+        const divider: DirectChatMessage = {
+          id: `divider-${Date.now()}`,
+          role: "divider",
+          content: "",
+        };
+        setAndSave((prev) => [...prev, divider]);
+        return;
+      }
 
       const userMsg: DirectChatMessage = {
         id: `user-${Date.now()}`,

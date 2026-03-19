@@ -225,12 +225,13 @@ def should_verify(
     tool_names_used: list[str],
     model_id: str | None = None,
     intent: str | None = None,
+    config: dict | None = None,
 ) -> tuple[bool, str]:
     """确定性规则判断是否需要验证（不用 LLM）
 
     Returns:
         (should_verify, method): method 为 "legacy" | "strong_model_review" |
-        "auto_search_verify" | ""
+        "auto_search_verify" | "deep_think_review" | ""
     """
     if len(assistant_reply) < _MIN_REPLY_LENGTH:
         return (False, "")
@@ -245,6 +246,18 @@ def should_verify(
         r = _check_capability_triggers(model_id, intent, assistant_reply)
         if r:
             return r
+
+    # 多 Agent 协同整合：consult_expert ≥ 阈值 → 深度思考模型验证
+    v_cfg = config.get("verification", {}) if config else {}
+    dt_cfg = v_cfg.get("deep_think", {})
+    min_consult = dt_cfg.get("min_consult_count", 2) if dt_cfg else 2
+    consult_count = tool_names_used.count("consult_expert")
+    if consult_count >= min_consult:
+        logger.info(
+            "[验证] 触发(多Agent协同整合): consult_expert=%d次",
+            consult_count,
+        )
+        return (True, "deep_think_review")
 
     # 传统规则：写操作工具
     if any(t in _WRITE_TOOLS for t in tool_names_used):
@@ -492,11 +505,12 @@ async def _verify_by_model(
     assistant_reply: str,
     auditor_model: str,
     config: dict,
+    max_reply_len: int = 3000,
 ) -> VerificationResult | None:
     """使用模型审核回复"""
     start = time.monotonic()
-    truncated = assistant_reply[:3000]
-    if len(assistant_reply) > 3000:
+    truncated = assistant_reply[:max_reply_len]
+    if len(assistant_reply) > max_reply_len:
         truncated += "\n...(已截断)"
 
     prompt = _get_review_prompt().format(
@@ -523,6 +537,107 @@ async def _verify_by_model(
     )
 
 
+async def _verify_by_deep_think(
+    user_message: str,
+    assistant_reply: str,
+    config: dict,
+) -> VerificationResult | None:
+    """并行调用深度思考模型（Kimi K2 Thinking + DeepSeek R1）进行双模型验证
+
+    逻辑：
+    - 从配置读取深度思考模型列表，筛选出当前可用的模型
+    - asyncio.gather 并行调用 _verify_by_model()
+    - 合并结果：任一模型发现问题 → 整体 verified=False，issues 合并去重
+    - 降级：无可用深度思考模型时返回 None（调用方降级到 strong_model_review）
+    """
+    import asyncio
+
+    v_cfg = config.get("verification", {})
+    dt_cfg = v_cfg.get("deep_think", {})
+    dt_models = dt_cfg.get("models", [
+        "deepseek/deepseek-reasoner",
+        "kimi/kimi-k2-thinking",
+    ])
+    dt_timeout = dt_cfg.get("timeout", 300)
+
+    # 筛选可用模型
+    try:
+        from app.kernel.router.llm_router import get_router
+        router = get_router()
+        available = router.get_available_models(config)
+        available_ids = {m["id"] for m in available if m.get("type") == "api"}
+    except Exception:
+        available_ids = set()
+
+    usable = [m for m in dt_models if m in available_ids]
+    if not usable:
+        logger.info("[验证] 无可用深度思考模型，将降级")
+        return None
+
+    logger.info("[验证] 深度思考验证启动: models=%s", usable)
+    start = time.monotonic()
+
+    # 并行调用
+    tasks = [
+        _verify_by_model(
+            user_message, assistant_reply, model_id, config,
+            max_reply_len=8000,
+        )
+        for model_id in usable
+    ]
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True),
+            timeout=dt_timeout,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("[验证] 深度思考验证超时 (%ds)", dt_timeout)
+        return None
+
+    # 合并结果
+    valid_results: list[VerificationResult] = []
+    for r in results:
+        if isinstance(r, VerificationResult):
+            valid_results.append(r)
+        elif isinstance(r, Exception):
+            logger.warning("[验证] 深度思考模型调用异常: %s", r)
+
+    if not valid_results:
+        return None
+
+    elapsed_ms = int((time.monotonic() - start) * 1000)
+
+    # 任一模型发现问题 → 整体不通过
+    all_verified = all(r.verified for r in valid_results)
+    # 合并 issues 去重
+    seen_issues: set[str] = set()
+    merged_issues: list[str] = []
+    for r in valid_results:
+        for issue in r.issues:
+            if issue not in seen_issues:
+                seen_issues.add(issue)
+                merged_issues.append(issue)
+
+    # 置信度取最低
+    confidence_order = {"high": 2, "medium": 1, "low": 0}
+    min_confidence = min(
+        valid_results,
+        key=lambda r: confidence_order.get(r.confidence, 0),
+    ).confidence
+
+    summaries = [r.summary for r in valid_results if r.summary]
+    merged_summary = " | ".join(summaries) if summaries else ""
+
+    return VerificationResult(
+        verified=all_verified,
+        confidence=min_confidence,
+        issues=merged_issues,
+        summary=merged_summary,
+        method="deep_think_review",
+        elapsed_ms=elapsed_ms,
+    )
+
+
 async def verify_response(
     user_message: str,
     assistant_reply: str,
@@ -531,12 +646,19 @@ async def verify_response(
     model_id: str | None = None,
     intent: str | None = None,
 ) -> VerificationResult | None:
-    """验证回复，支持三种方法
+    """验证回复，支持多种方法
 
     Returns:
         VerificationResult 或 None（验证出错时静默返回 None）
     """
     v_cfg = config.get("verification", {})
+
+    if method == "deep_think_review":
+        result = await _verify_by_deep_think(user_message, assistant_reply, config)
+        if result is not None:
+            return result
+        logger.info("[验证] 深度思考验证不可用，降级为强模型审核")
+        method = "strong_model_review"
 
     if method == "auto_search_verify":
         result = await _verify_by_search(assistant_reply, config)

@@ -31,7 +31,8 @@
     "toolCompleted": "已完成 {{count}} 个操作",
     "toolFailed": "{{count}} 个失败",
     "history": "历史对话",
-    "messages": "条消息"
+    "messages": "条消息",
+    "freshDivider": "新对话上下文"
   },
   "skills": {
     "title": "Skill 管理",
